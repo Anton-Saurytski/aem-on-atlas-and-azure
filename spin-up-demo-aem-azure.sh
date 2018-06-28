@@ -18,6 +18,8 @@ echo "Detected az account user.name='${AZ_USER}'"
 AEM_SOURCE_JAR="./AEM_6.4_Quickstart.jar"
 AEM_LICENSE="./license.properties"
 AEM_ADMIN_PWD="Ad0b3~AEM~0nAzureAndAtlasR0cks"
+AEM_ADMIN_PWD_FILE="./admin.password.$(mktemp | cut -d'.' -f2)"
+echo "admin.password = ${AEM_ADMIN_PWD}" > ${AEM_ADMIN_PWD_FILE}
 
 if [ ! -f ${AEM_SOURCE_JAR} ]; then
   echo "Unable to find '${AEM_SOURCE_JAR}'"
@@ -74,16 +76,20 @@ AEMVMIP=$(az network public-ip list \
 --resource-group ${DEMO_NAME} \
 --output tsv \
 --query '[0].ipAddress')
+
 AEMJAR=aem-author-p${AEMPORT}.jar
+
 scp ${AEM_SOURCE_JAR} aem@${AEMVMIP}:~/${AEMJAR}
-scp ${AEM_LICENCE} aem@${AEMVMIP}:/license.properties
+scp ${AEM_LICENCE} aem@${AEMVMIP}:~/license.properties
+scp ${AEM_ADMIN_PWD_FILE} aem@${AEMVMIP}:~/admin.password
 
 az vm run-command invoke \
 --resource-group ${DEMO_NAME} \
 --name demo-aem-vm --command-id RunShellScript \
 --scripts "nohup java -XX:MaxPermSize=512M -mx4g \
 -jar ${AEMJAR} -r author,crx3,crx3mongo \
--Dadmin.password=${AEM_ADMIN_PWD} \
+-Dadmin.password.file=~/admin.password \
+-nointeractive \
 -Doak.mongo.uri=\"${ATLAS_CONNSTR}\" </dev/null >aem.log 2>&1 &"
 
 
