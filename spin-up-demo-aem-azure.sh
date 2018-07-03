@@ -45,11 +45,12 @@ ATLAS_CLUSTER_NAME="${DEMO_NAME}"
 
 # Edit this to the desired Azure region.
 AZURE_REGION="US_EAST"
-printf -v AZURE_RESOURCE_TAGS \
-"DEMO_NAME=%s ATLAS_CLUSTER_NAME=%s ATLAS_PROJECT=%s" \
-${DEMO_NAME} \
-${ATLAS_CLUSTER_NAME} \
-${ATLAS_PROJECT}
+AZURE_AEM_VM_NAME="${DEMO_NAME}-aem-vm"
+declare -A AZURE_RESOURCE_TAGS
+AZURE_RESOURCE_TAGS[DEMO_NAME]=${DEMO_NAME}
+AZURE_RESOURCE_TAGS[ATLAS_CLUSTER_NAME]=${ATLAS_CLUSTER_NAME}
+AZURE_RESOURCE_TAGS[ATLAS_PROJECT]=${ATLAS_PROJECT}
+DEMO_NAME_TAG="DEMO_NAME=${DEMO_NAME}"
 
 
 AEM_SOURCE_JAR="./AEM_6.4_Quickstart.jar"
@@ -211,13 +212,23 @@ declare -p | grep '^ATLAS\|^AZURE\|^DEMO|^SPIN_DEMO' > ${SPIN_DEMO_LOG}
 
 echo "Using port number ${AEM_PORT} for aem author node."
 
+#Create Azure resource group for everything
 az group create --resource-group ${DEMO_NAME} \
---location eastus \
---tags "${AZURE_RESOURCE_TAGS}"
+--location eastus
 
-az resource list --output table
+AZCLI_TAGS=""
+for K in "${!AZURE_RESOURCE_TAGS[@]}"; do 
+  AZCLI_TAGS+="${AZCLI_TAGS} --set targs.${K}=${MYMAP[$K]}"
+done
 
-az vm create --name demo-aem-vm \
+#Tag resource group
+az group update \
+--resource-group ${DEMO_NAME} \
+"${AZCLI_TAGS}"
+az resource list --output table --tag "${DEMO_NAME_TAG}"
+
+#Provision VM for AEM
+az vm create --name ${AZURE_AEM_VM_NAME} \
 --resource-group ${DEMO_NAME} \
 --public-ip-address demo-aem-public-ip \
 --nsg demo-aem-nsg \
@@ -228,19 +239,32 @@ az vm create --name demo-aem-vm \
 --admin-username aem \
 --tags "${AZURE_RESOURCE_TAGS}"
 
-az resource list --output table --tag "${DEMO_NAME}"
-
-az network nsg rule create --name demo-aem-allow-http-${AEM_PORT} \
+#Tag VM (bug in azcli, multiple tags on create not parse correct)
+az vm update --name ${AZURE_AEM_VM_NAME} \
 --resource-group ${DEMO_NAME} \
---nsg-name demo-aem-nsg \
+"${AZCLI_TAGS}"
+
+az resource list --output table --tag "${DEMO_NAME_TAG}"
+
+AZ_NSG_NAME="${DEMO_NAME}-nsg"
+AZ_NSG_RULE_NAME="${DEMO_NAME}-aem-allow-http-${AEM_PORT}"
+az network nsg rule create --name ${AZ_NSG_RULE_NAME} \
+--resource-group ${DEMO_NAME} \
+--nsg-name ${AZ_NSG_NAME} \
 --access Allow \
 --direction Inbound \
 --destination-port-range ${AEM_PORT} \
+--source-address-prefixes '*' \
 --priority 102 \
 --tags "${AZURE_RESOURCE_TAGS}" \
 --description "Allow inbound traffic from Internet to AEM"
 
-az resource list --output table --tag "${DEMO_NAME}"
+az network nsg rule update --name ${AZ_NSG_RULE_NAME} \
+--nsg-name ${AZ_NSG_NAME} \
+--resource-group ${DEMO_NAME} \
+"${AZCLI_TAGS}"
+
+az resource list --output table --tag "${DEMO_NAME_TAG}"
 
 az vm run-command invoke \
 --resource-group ${DEMO_NAME} \
@@ -254,10 +278,12 @@ AEM_VM_IP=$(az network public-ip list \
 
 AEMJAR=aem-author-p${AEM_PORT}.jar
 
+echo "Uploading AEM assets to Azure VM '${AZURE_AEM_VM_NAME}"
 yes | scp ${AEM_SOURCE_JAR} aem@${AEM_VM_IP}:~/${AEMJAR}
 scp ${AEM_LICENCE} aem@${AEM_VM_IP}:~/license.properties
 scp ${AEM_ADMIN_PWD_FILE} aem@${AEM_VM_IP}:~/admin.password
 
+echo "Starting AEM Author node..."
 az vm run-command invoke \
 --resource-group ${DEMO_NAME} \
 --name demo-aem-vm --command-id RunShellScript \
@@ -267,6 +293,8 @@ az vm run-command invoke \
 -nointeractive \
 -Doak.mongo.uri=\"${ATLAS_CONNSTR}\" </dev/null >aem.log 2>&1 &"
 
-az resource list --tag "${ATLAS_CLUSTER_NAME}" > ${SPIN_DEMO_LOG}
+az resource list --output table \
+--tag "${DEMO_NAME_TAG}" > ${SPIN_DEMO_LOG}
+
 
 
