@@ -1,5 +1,6 @@
 #!/bin/bash
 set -x
+set -e
 
 # For demonstration and testing purposes only!
 # 
@@ -24,8 +25,9 @@ set -x
 # requests and questions can be posted in the Issues section 
 # on GitHub.
 #
-# Fix up these env vars!!
-#
+# ################################ #
+# Update these variables - START
+# ################################ #
 # Read DEMO_NAME from command line OR default...
 if [ -z "$1" ]; then
   DEMO_NAME_BASE="my-aem-demo"
@@ -45,18 +47,20 @@ ATLAS_CLUSTER_NAME="${DEMO_NAME}"
 
 # Edit this to the desired Azure region.
 AZURE_REGION="US_EAST"
+AZURE_REGION_azcli="eastus"
 AZURE_AEM_VM_NAME="${DEMO_NAME}-aem-vm"
-declare -A AZURE_RESOURCE_TAGS
-AZURE_RESOURCE_TAGS[DEMO_NAME]=${DEMO_NAME}
-AZURE_RESOURCE_TAGS[ATLAS_CLUSTER_NAME]=${ATLAS_CLUSTER_NAME}
-AZURE_RESOURCE_TAGS[ATLAS_PROJECT]=${ATLAS_PROJECT}
-DEMO_NAME_TAG="DEMO_NAME=${DEMO_NAME}"
-
 
 AEM_SOURCE_JAR="./AEM_6.4_Quickstart.jar"
 AEM_LICENSE="./license.properties"
 AEM_ADMIN_PWD="Ad0b3~AEM~0nAzureAndAtlasR0cks"
 AEM_PORT=4502
+
+#CURL_VERBOSE="-vvv "
+CURL_VERBOSE=""
+# ################################ #
+# Update these variables - END 
+# ################################ #
+
 
 echo "Spinning up AEM on Azure and Atlas demo"
 echo "DEMO_NAME: ${DEMO_NAME}"
@@ -81,6 +85,11 @@ ATLAS_CREDS="${ATLAS_USER_EMAIL}:${ATLAS_APIKEY}"
 AEM_ADMIN_PWD_FILE="./admin.password.${DEMO_NAME}"
 echo "admin.password = ${AEM_ADMIN_PWD}" > ${AEM_ADMIN_PWD_FILE}
 
+AZURE_TAGS_DEMO_NAME=${DEMO_NAME}
+AZURE_TAGS_ATLAS_CLUSTER_NAME=${ATLAS_CLUSTER_NAME}
+AZURE_TAGS_ATLAS_PROJECT=${ATLAS_PROJECT}
+DEMO_NAME_TAG="DEMO_NAME=${DEMO_NAME}"
+
 if [ ! -f ${AEM_SOURCE_JAR} ]; then
   echo "Unable to find '${AEM_SOURCE_JAR}'"
   echo "Please download and reference your AEM jar file in this script."
@@ -101,7 +110,8 @@ ATLAS_URL="https://cloud.mongodb.com/api/atlas/v1.0"
 
 # Fetch Atlas group id from group name
 # FYI: Project ~= Group
-ATLAS_GROUP_BYNAME_RSP=$(curl -s -u "${ATLAS_CREDS}" \
+ATLAS_GROUP_BYNAME_RSP=$(curl ${CURL_VERBOSE} -s \
+-u "${ATLAS_CREDS}" \
 --digest "${ATLAS_URL}/groups/byName/${ATLAS_PROJECT}")
 
 ATLAS_GROUP_ID=$(echo ${ATLAS_GROUP_BYNAME_RSP} | jq -r '.id')
@@ -125,14 +135,14 @@ EOF
 
 echo "ATLAS_CREATE_CLUSTER_REQUEST=${ATLAS_CREATE_CLUSTER_REQUEST}"
 
-ATLAS_CREATE_CLUSTER_RAW_RSP=$(curl -vvv -s -u "${ATLAS_CREDS}" --digest \
+# TODO: refactor to use api ?envelope=true
+ATLAS_CREATE_CLUSTER_RAW_RSP=$(curl ${CURL_VERBOSE} -s \
+-u "${ATLAS_CREDS}" --digest \
 -H "Content-Type: application/json" \
 --write-out "HTTPSTATUS:%{http_code}" \
--X POST "${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/clusters" \
--X POST --data "${ATLAS_CREATE_CLUSTER_REQUEST} "
-"${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/clusters" \
+-X POST --data "${ATLAS_CREATE_CLUSTER_REQUEST}" \
+"${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/clusters"
 )
-
 
 HTTP_STATUS=$(echo ${ATLAS_CREATE_CLUSTER_RAW_RSP} | \
 tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
@@ -158,7 +168,8 @@ fi
 
 xSTATUS="???"
 while [[ "${xSTATUS}" != "IDLE" ]]; do
-  ATLAS_CLUSTER_RSP=$(curl -s -u "${ATLAS_CREDS}" --digest \
+  ATLAS_CLUSTER_RSP=$(curl ${CURL_VERBOSE} \
+  -s -u "${ATLAS_CREDS}" --digest \
   -H "Content-Type: application/json" \
   "${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/clusters/${ATLAS_CLUSTER_NAME}")
   xSTATUS=$(echo ${ATLAS_CLUSTER_RSP} | jq -r '.stateName')
@@ -180,7 +191,8 @@ ATLAS_CONNSTR=$(echo ${ATLAS_CLUSTER_RSP} | jq -r '.mongoURIWithOptions')
 
 # Create MongoDB database user for AEM
 # (just fetch HTTP status here???)
-curl -s -u "${ATLAS_CREDS}" --digest \
+curl ${CURL_VERBOSE} -s \
+-u "${ATLAS_CREDS}" --digest \
 -H "Content-Type: application/json" \
 -X POST "${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/databaseUsers" \
 --data @- <<EOF \
@@ -199,8 +211,9 @@ curl -s -u "${ATLAS_CREDS}" --digest \
 }
 EOF
 
-$ Fetch all db users
-curl -s -u "${ATLAS_CREDS}" \
+# Fetch all db users
+curl ${CURL_VERBOSE} \
+-s -u "${ATLAS_CREDS}" \
 --digest "${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/databaseUsers?pretty=true"
 
 SPIN_DEMO_LOG="./aem-on-azure-and-atlas.spin-up.log"
@@ -214,18 +227,19 @@ echo "Using port number ${AEM_PORT} for aem author node."
 
 #Create Azure resource group for everything
 az group create --resource-group ${DEMO_NAME} \
---location eastus
+--location ${AZURE_REGION_azcli}
 
-AZCLI_TAGS=""
-for K in "${!AZURE_RESOURCE_TAGS[@]}"; do 
-  AZCLI_TAGS+="${AZCLI_TAGS} --set targs.${K}=${MYMAP[$K]}"
-done
+AZCLI_TAGS="--set tags.DEMO_NAME=${AZURE_TAGS_DEMO_NAME} \
+--set tags.ATLAS_CLUSTER_NAME=${AZURE_TAGS_ATLAS_CLUSTER_NAME} \
+--set tags.ATLAS_PROJECT=${AZURE_TAGS_ATLAS_PROJECT}"
 
+echo "AZCLI_TAGS=${AZCLI_TAGS}"
 #Tag resource group
 az group update \
 --resource-group ${DEMO_NAME} \
-"${AZCLI_TAGS}"
-az resource list --output table --tag "${DEMO_NAME_TAG}"
+${AZCLI_TAGS}
+
+az group list --output table --tag "${DEMO_NAME_TAG}"
 
 #Provision VM for AEM
 az vm create --name ${AZURE_AEM_VM_NAME} \
@@ -236,13 +250,12 @@ az vm create --name ${AZURE_AEM_VM_NAME} \
 --os-disk-size-gb 30 \
 --size Standard_D2s_v3 \
 --generate-ssh-keys \
---admin-username aem \
---tags "${AZURE_RESOURCE_TAGS}"
+--admin-username aem
 
 #Tag VM (bug in azcli, multiple tags on create not parse correct)
 az vm update --name ${AZURE_AEM_VM_NAME} \
 --resource-group ${DEMO_NAME} \
-"${AZCLI_TAGS}"
+${AZCLI_TAGS}
 
 az resource list --output table --tag "${DEMO_NAME_TAG}"
 
@@ -256,13 +269,12 @@ az network nsg rule create --name ${AZ_NSG_RULE_NAME} \
 --destination-port-range ${AEM_PORT} \
 --source-address-prefixes '*' \
 --priority 102 \
---tags "${AZURE_RESOURCE_TAGS}" \
 --description "Allow inbound traffic from Internet to AEM"
 
 az network nsg rule update --name ${AZ_NSG_RULE_NAME} \
 --nsg-name ${AZ_NSG_NAME} \
 --resource-group ${DEMO_NAME} \
-"${AZCLI_TAGS}"
+${AZCLI_TAGS}
 
 az resource list --output table --tag "${DEMO_NAME_TAG}"
 
@@ -275,6 +287,8 @@ AEM_VM_IP=$(az network public-ip list \
 --resource-group ${DEMO_NAME} \
 --output tsv \
 --query '[0].ipAddress')
+
+echo "AEM_VM_IP=${AEM_VM_IP}"
 
 AEMJAR=aem-author-p${AEM_PORT}.jar
 

@@ -1,21 +1,26 @@
+#!/bin/bash
+set -x
 
 
 
 # load env vars from spin-up
-SPIN_UP_LOG=""
+SPIN_UP_LOG="./aem-on-azure-and-atlas.spin-up.log"
 eval $(grep '^ATLAS\|^AZURE\|^DEMO' ${SPIN_UP_LOG})
 # Fetch id's of any Azure resource
 
+declare -p | grep '^ATLAS\|^AZURE\|^DEMO|^SPIN_DEMO'
 
-AZ_IDS=$(az resource list \
---tag "${DEMO_NAME}" --query '[].id' | \
+AZ_IDS=$(az group list \
+--tag "Demo_NAME=${DEMO_NAME}" --query '[].id' | \
 jq -r -c '.[]')
 
 for ID in ${AZ_IDS}
 do
   echo "Found id='${ID}'"
+  az group delete --no-wait --yes --name ${DEMO_NAME}
 done
 
+exit 0
 
 
 # Delete MongoDB Atlas cluster
