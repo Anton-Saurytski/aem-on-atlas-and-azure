@@ -10,31 +10,19 @@ eval $(grep '^ATLAS\|^AZURE\|^DEMO' ${SPIN_UP_LOG})
 
 declare -p | grep '^ATLAS\|^AZURE\|^DEMO|^SPIN_DEMO'
 
-AZ_IDS=$(az group list \
---tag "Demo_NAME=${DEMO_NAME}" --query '[].id' | \
-jq -r -c '.[]')
-
-for ID in ${AZ_IDS}
-do
-  echo "Found id='${ID}'"
-  az group delete --no-wait --yes --name ${DEMO_NAME}
-done
-
-exit 0
-
+# All Azure resource are associated with a single group.
+# Deleting the group will delete everything.
+az group delete --no-wait --yes --name ${DEMO_NAME}
 
 # Delete MongoDB Atlas cluster
-ATLAS_DELETE_CLUSTER_RAW_RSP=$(curl -s -u "${ATLAS_CREDS}" --digest \
---write-out "HTTPSTATUS:%{http_code}" \
+ATLAS_DELETE_CLUSTER_RSP=$(curl -s -u "${ATLAS_CREDS}" --digest \
 -X DELETE \
-"${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/clusters/${ATLAS_CLUSTER_NAME}" \
+"${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/clusters/${ATLAS_CLUSTER_NAME}?envelope=true" \
 )
 
 HTTP_STATUS=$(echo ${ATLAS_DELETE_CLUSTER_RAW_RSP} | \
-tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
+jq '.status')
 
 echo "Atlas delete cluster HTTP Status: ${HTTP_STATUS}"
-ATLAS_DELETE_CLUSTER_RSP=$(echo "${ATLAS_DELETE_CLUSTER_RAW_RSP}" | \
-sed -e 's/HTTPSTATUS:.*//g')
 echo "Atlas delete cluster response: ${ATLAS_DELETE_CLUSTER_RSP}"
 

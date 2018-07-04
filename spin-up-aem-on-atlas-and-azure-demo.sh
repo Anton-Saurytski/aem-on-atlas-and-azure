@@ -261,6 +261,13 @@ az resource list --output table --tag "${DEMO_NAME_TAG}"
 
 AZ_NSG_NAME="${DEMO_NAME}-nsg"
 AZ_NSG_RULE_NAME="${DEMO_NAME}-aem-allow-http-${AEM_PORT}"
+az network nsg create --name ${AZ_NSG_NAME} \
+--resource-group ${DEMO_NAME}
+
+az network nsg update --name ${AZ_NSG_NAME} \
+--resource-group ${DEMO_NAME} \
+${AZCLI_TAGS}
+
 az network nsg rule create --name ${AZ_NSG_RULE_NAME} \
 --resource-group ${DEMO_NAME} \
 --nsg-name ${AZ_NSG_NAME} \
@@ -309,6 +316,4 @@ az vm run-command invoke \
 
 az resource list --output table \
 --tag "${DEMO_NAME_TAG}" > ${SPIN_DEMO_LOG}
-
-
 
