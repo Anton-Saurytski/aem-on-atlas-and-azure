@@ -50,8 +50,8 @@ AZURE_REGION="US_EAST"
 AZURE_REGION_azcli="eastus"
 AZURE_AEM_VM_NAME="${DEMO_NAME}-aem-vm"
 
-AEM_SOURCE_JAR="./AEM_6.4_Quickstart.jar"
-AEM_LICENSE="./license.properties"
+[[ -z "${AEM_SOURCE_JAR}" ]] && AEM_SOURCE_JAR="./AEM_6.4_Quickstart.jar"
+[[ -z "${AEM_LICENSE}" ]] && AEM_LICENSE="./license.properties"
 AEM_ADMIN_PWD="Ad0b3~AEM~0nAzureAndAtlasR0cks"
 AEM_PORT=4502
 
@@ -221,7 +221,16 @@ if [[ -f ${SPIN_DEMO_LOG} ]]; then
   cp ${SPIN_DEMO_LOG} "./aem-on-azure-and-atlas.spin-up-$(date +"%F-%T").log"
 fi
 
-declare -p | grep '^ATLAS\|^AZURE\|^DEMO|^SPIN_DEMO' > ${SPIN_DEMO_LOG}
+OS_FLAVOR=$(uname -s)
+if [[ "${OS_FLAVOR}" == "Darwin" ]]; then
+  declare -p | grep 'ATLAS\|AZURE\|DEMO|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
+else
+  ( set -o posix ; set ) | grep 'ATLAS\|AZURE\|DEMO\|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
+fi
+
+
+#export -p | grep 'ATLAS\|AZURE\|DEMO\|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
+#export -p > ${SPIN_DEMO_LOG}.env
 
 echo "Using port number ${AEM_PORT} for aem author node."
 
@@ -290,20 +299,28 @@ echo "AEM_VM_IP=${AEM_VM_IP}"
 
 AEMJAR=aem-author-p${AEM_PORT}.jar
 
+SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
 echo "Uploading AEM assets to Azure VM '${AZURE_AEM_VM_NAME}"
-yes | scp ${AEM_SOURCE_JAR} aem@${AEM_VM_IP}:~/${AEMJAR}
-scp ${AEM_LICENCE} aem@${AEM_VM_IP}:~/license.properties
-scp ${AEM_ADMIN_PWD_FILE} aem@${AEM_VM_IP}:~/admin.password
+yes | scp ${SCP_OPTS} ${AEM_SOURCE_JAR} aem@${AEM_VM_IP}:~/${AEMJAR}
+scp ${SCP_OPTS} ${AEM_LICENSE} aem@${AEM_VM_IP}:~/license.properties
+scp ${SCP_OPTS} ${AEM_ADMIN_PWD_FILE} aem@${AEM_VM_IP}:~/admin.password
 
 echo "Starting AEM Author node..."
 az vm run-command invoke \
 --resource-group ${DEMO_NAME} \
---name demo-aem-vm --command-id RunShellScript \
+--name ${AZURE_AEM_VM_NAME} --command-id RunShellScript \
 --scripts "nohup java -XX:MaxPermSize=512M -mx4g \
 -jar ${AEMJAR} -r author,crx3,crx3mongo \
 -Dadmin.password.file=~/admin.password \
 -nointeractive \
 -Doak.mongo.uri=\"${ATLAS_CONNSTR}\" </dev/null >aem.log 2>&1 &"
+
+OS_FLAVOR=$(uname -s)
+if [[ "${OS_FLAVOR}" == "Darwin" ]]; then
+  declare -p | grep 'ATLAS\|AZURE\|DEMO|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
+else
+  ( set -o posix ; set ) | grep 'ATLAS\|AZURE\|DEMO\|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
+fi
 
 az resource list --output table \
 --tag "${DEMO_NAME_TAG}" > ${SPIN_DEMO_LOG}
