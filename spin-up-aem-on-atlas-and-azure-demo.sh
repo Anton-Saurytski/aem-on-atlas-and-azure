@@ -244,7 +244,7 @@ az group list --output table --tag "${DEMO_NAME_TAG}"
 #Provision VM for AEM
 az vm create --name ${AZURE_AEM_VM_NAME} \
 --resource-group ${DEMO_NAME} \
---public-ip-address demo-aem-public-ip \
+--public-ip-address ${AZURE_AEM_VM_NAME}-public-ip \
 --nsg demo-aem-nsg \
 --image ubuntults \
 --os-disk-size-gb 30 \
@@ -264,10 +264,6 @@ AZ_NSG_RULE_NAME="${DEMO_NAME}-aem-allow-http-${AEM_PORT}"
 az network nsg create --name ${AZ_NSG_NAME} \
 --resource-group ${DEMO_NAME}
 
-az network nsg update --name ${AZ_NSG_NAME} \
---resource-group ${DEMO_NAME} \
-${AZCLI_TAGS}
-
 az network nsg rule create --name ${AZ_NSG_RULE_NAME} \
 --resource-group ${DEMO_NAME} \
 --nsg-name ${AZ_NSG_NAME} \
@@ -278,22 +274,17 @@ az network nsg rule create --name ${AZ_NSG_RULE_NAME} \
 --priority 102 \
 --description "Allow inbound traffic from Internet to AEM"
 
-az network nsg rule update --name ${AZ_NSG_RULE_NAME} \
---nsg-name ${AZ_NSG_NAME} \
---resource-group ${DEMO_NAME} \
-${AZCLI_TAGS}
-
 az resource list --output table --tag "${DEMO_NAME_TAG}"
 
 az vm run-command invoke \
 --resource-group ${DEMO_NAME} \
---name demo-aem-vm --command-id RunShellScript \
+--name ${AZURE_AEM_VM_NAME} --command-id RunShellScript \
 --scripts "sudo apt-get update && sudo apt-get install -y openjdk-8-jdk-headless"
 
 AEM_VM_IP=$(az network public-ip list \
 --resource-group ${DEMO_NAME} \
 --output tsv \
---query '[0].ipAddress')
+--query '[?[].name=="${AZURE_AEM_VM_NAME}-public-ip"] | [].ipAddress')
 
 echo "AEM_VM_IP=${AEM_VM_IP}"
 
