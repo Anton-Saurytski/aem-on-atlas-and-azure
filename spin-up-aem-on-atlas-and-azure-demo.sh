@@ -117,7 +117,6 @@ ATLAS_GROUP_BYNAME_RSP=$(curl ${CURL_VERBOSE} -s \
 --digest "${ATLAS_URL}/groups/byName/${ATLAS_PROJECT}")
 
 ATLAS_GROUP_ID=$(echo ${ATLAS_GROUP_BYNAME_RSP} | jq -r '.id')
-
 # Provision MongoDB Atlas cluster
 ATLAS_CREATE_CLUSTER_REQUEST=$(cat << EOF
 {
@@ -299,6 +298,32 @@ AEM_VM_IP=$(az network public-ip list \
 
 echo "AEM_VM_IP=${AEM_VM_IP}"
 
+# TODO: need to add thie AEM_VM_IP to the Atlas Project Whitelist!
+ATLAS_PROJECT_WHITELIST_REQUEST=$(cat << EOF
+[
+  {
+    "ipAddress" : "${AEM_VM_IP}",
+    "comment" : "IP Address for AEM on Azure ${DEMO_NAME}"
+  }
+]
+EOF
+)
+
+echo "ATLAS_PROJECT_WHITELIST_REQUEST=${ATLAS_PROJECT_WHITELIST_REQUEST}"
+
+# TODO: refactor to use api ?envelope=true
+ATLAS_PROJECT_WHITELIST_RAW_RSP=$(curl ${CURL_VERBOSE} -s \
+-u "${ATLAS_CREDS}" --digest \
+-H "Content-Type: application/json" \
+-X POST --data "${ATLAS_PROJECT_WHITELIST_REQUEST}" \
+"${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/whitelist?envelope=true"
+)
+
+echo "ATLAS_PROJECT_WHITELIST_RAW_RSP=${ATLAS_PROJECT_WHITELIST_RAW_RSP}"
+
+ATLAS_PROJECT_WHITELIST_RSP_STATUS=$(echo ${ATLAS_CREATE_CLUSTER_RSP} | jq -r '.status')
+echo "ATLAS_PROJECT_WHITELIST_RSP_STATUS=${ATLAS_PROJECT_WHITELIST_RSP_STATUS}"
+
 AEMJAR=aem-author-p${AEM_PORT}.jar
 
 SCP_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
@@ -310,16 +335,31 @@ scp ${SCP_OPTS} ${AEM_ADMIN_PWD_FILE} aem@${AEM_VM_IP}:~/admin.password
 ATLAS_CONNSTR_WITH_CREDS=\
 "mongodb://${AEM_MONGODB_USER}:${AEM_MONGODB_PWD}@$(echo ${ATLAS_CONNSTR} | cut -d'/' -f3-)"
 
+
+AEM_RUN_SCRIPT=$(cat << EOF
+#!/usr/bin/env bash 
+nohup java -XX:MaxPermSize=512M \
+-mx4g -jar aem-author-p4502.jar \
+-r author,crx3,crx3mongo \
+-Dadmin.password.file=~/admin.password \
+-Dmongo.oak.uri="${ATLAS_CONNSTR_WITH_CREDS}"
+-nointeractive </dev/null >aem.log 2>&1 &
+EOF
+)
+
+AEM_RUN_SCRIPT_FILENAME="./aem-run-sh"
+echo "${AEM_RUN_SCRIPT}" > ${AEM_RUN_SCRIPT_FILENAME}
+
+# Techinically, we don't need to copy this run script to the vm since the 
+# following az command runs it from the local file, but for debugging
+# it can be useful to have there.
+scp ${SCP_OPTS} ${AEM_RUN_SCRIPT_FILENAME} aem@${AEM_VM_IP}:${AEM_RUN_SCRIPT_FILENAME}
+
 echo "Starting AEM Author node..."
 az vm run-command invoke \
 --resource-group ${DEMO_NAME} \
 --name ${AZURE_AEM_VM_NAME} --command-id RunShellScript \
---scripts "nohup java -XX:MaxPermSize=512M -mx4g \
--jar ${AEMJAR} -r author,crx3,crx3mongo \
--Dadmin.password.file=~/admin.password \
--nointeractive \
--Doak.mongo.uri=\"${ATLAS_CONNSTR_WITH_CREDS}\" \
-</dev/null >aem.log 2>&1 &"
+--scripts @${AEM_RUN_SCRIPT_FILENAME}
 
 OS_FLAVOR=$(uname -s)
 if [[ "${OS_FLAVOR}" == "Darwin" ]]; then
