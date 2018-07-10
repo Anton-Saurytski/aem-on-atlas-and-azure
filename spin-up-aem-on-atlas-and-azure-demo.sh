@@ -54,6 +54,8 @@ AZURE_AEM_VM_NAME="${DEMO_NAME}-aem-vm"
 [[ -z "${AEM_LICENSE}" ]] && AEM_LICENSE="./license.properties"
 AEM_ADMIN_PWD="Ad0b3~AEM~0nAzureAndAtlasR0cks"
 AEM_PORT=4502
+AEM_MONGODB_USER="aem"
+AEM_MONGODB_PWD="aem"
 
 #CURL_VERBOSE="-vvv "
 CURL_VERBOSE=""
@@ -206,8 +208,8 @@ curl ${CURL_VERBOSE} -s \
     "databaseName" : "admin",
     "roleName" : "dbAdminAnyDatabase"
   } ],
-  "username" : "aem",
-  "password" : "aem"
+  "username" : "${AEM_MONGODB_USER}",
+  "password" : "${AEM_MONGODB_PWD}"
 }
 EOF
 
@@ -305,6 +307,9 @@ yes | scp ${SCP_OPTS} ${AEM_SOURCE_JAR} aem@${AEM_VM_IP}:~/${AEMJAR}
 scp ${SCP_OPTS} ${AEM_LICENSE} aem@${AEM_VM_IP}:~/license.properties
 scp ${SCP_OPTS} ${AEM_ADMIN_PWD_FILE} aem@${AEM_VM_IP}:~/admin.password
 
+ATLAS_CONNSTR_WITH_CREDS=\
+"mongodb://${AEM_MONGODB_USER}:${AEM_MONGODB_PWD}@$(echo ${ATLAS_CONNSTR} | cut -d'/' -f3-)"
+
 echo "Starting AEM Author node..."
 az vm run-command invoke \
 --resource-group ${DEMO_NAME} \
@@ -313,7 +318,8 @@ az vm run-command invoke \
 -jar ${AEMJAR} -r author,crx3,crx3mongo \
 -Dadmin.password.file=~/admin.password \
 -nointeractive \
--Doak.mongo.uri=\"${ATLAS_CONNSTR}\" </dev/null >aem.log 2>&1 &"
+-Doak.mongo.uri=\"${ATLAS_CONNSTR_WITH_CREDS}\" \
+</dev/null >aem.log 2>&1 &"
 
 OS_FLAVOR=$(uname -s)
 if [[ "${OS_FLAVOR}" == "Darwin" ]]; then
