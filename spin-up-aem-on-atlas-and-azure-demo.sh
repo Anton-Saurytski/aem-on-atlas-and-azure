@@ -137,20 +137,14 @@ EOF
 echo "ATLAS_CREATE_CLUSTER_REQUEST=${ATLAS_CREATE_CLUSTER_REQUEST}"
 
 # TODO: refactor to use api ?envelope=true
-ATLAS_CREATE_CLUSTER_RAW_RSP=$(curl ${CURL_VERBOSE} -s \
+ATLAS_CREATE_CLUSTER_RSP=$(curl ${CURL_VERBOSE} -s \
 -u "${ATLAS_CREDS}" --digest \
 -H "Content-Type: application/json" \
---write-out "HTTPSTATUS:%{http_code}" \
 -X POST --data "${ATLAS_CREATE_CLUSTER_REQUEST}" \
-"${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/clusters"
+"${ATLAS_URL}/groups/${ATLAS_GROUP_ID}/clusters?envelope=true"
 )
-
-HTTP_STATUS=$(echo ${ATLAS_CREATE_CLUSTER_RAW_RSP} | \
-tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
-
+HTTP_STATUS=$(echo ${ATLAS_CREATE_CLUSTER_RAW_RSP} | jq -r '.status')
 echo "Atlas create cluster HTTP Status: ${HTTP_STATUS}"
-ATLAS_CREATE_CLUSTER_RSP=$(echo "${ATLAS_CREATE_CLUSTER_RAW_RSP}" | \
-sed -e 's/HTTPSTATUS:.*//g')
 echo "Atlas create cluster response: ${ATLAS_CREATE_CLUSTER_RSP}"
 
 if [[ "${HTTP_STATUS}" != "201" ]]; then
@@ -158,8 +152,8 @@ if [[ "${HTTP_STATUS}" != "201" ]]; then
   if [[ "${ERROR_CODE}" != 'DUPLICATE_CLUSTER_NAME' ]]; then
     echo -e '*** ERROR ***\n'
     echo "An error was detected attempting to provision the MongoDB Atlas cluster."
-    echo " Please review the raw HTTP response."
-    echo ${ATLAS_CREATE_CLUSTER_RAW_RSP}
+    echo " Please review the HTTP response."
+    echo ${ATLAS_CREATE_CLUSTER_RSP}
     exit 1
   else
     echo "Atlas cluster '${DEMO_NAME}' already exists, will use."
@@ -222,16 +216,7 @@ if [[ -f ${SPIN_DEMO_LOG} ]]; then
   cp ${SPIN_DEMO_LOG} "./aem-on-azure-and-atlas.spin-up-$(date +"%F-%T").log"
 fi
 
-OS_FLAVOR=$(uname -s)
-if [[ "${OS_FLAVOR}" == "Darwin" ]]; then
-  declare -p | grep 'ATLAS\|AZURE\|DEMO|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
-else
-  ( set -o posix ; set ) | grep 'ATLAS\|AZURE\|DEMO\|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
-fi
 
-
-#export -p | grep 'ATLAS\|AZURE\|DEMO\|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
-#export -p > ${SPIN_DEMO_LOG}.env
 
 echo "Using port number ${AEM_PORT} for aem author node."
 
@@ -342,12 +327,12 @@ nohup java -XX:MaxPermSize=512M \
 -mx4g -jar aem-author-p4502.jar \
 -r author,crx3,crx3mongo \
 -Dadmin.password.file=~/admin.password \
--Dmongo.oak.uri="${ATLAS_CONNSTR_WITH_CREDS}"
+-Doak.mongo.uri="${ATLAS_CONNSTR_WITH_CREDS}"
 -nointeractive </dev/null >aem.log 2>&1 &
 EOF
 )
 
-AEM_RUN_SCRIPT_FILENAME="./aem-run-sh"
+AEM_RUN_SCRIPT_FILENAME="./aem-run.sh"
 echo "${AEM_RUN_SCRIPT}" > ${AEM_RUN_SCRIPT_FILENAME}
 
 # Techinically, we don't need to copy this run script to the vm since the 
@@ -361,12 +346,15 @@ az vm run-command invoke \
 --name ${AZURE_AEM_VM_NAME} --command-id RunShellScript \
 --scripts @${AEM_RUN_SCRIPT_FILENAME}
 
-OS_FLAVOR=$(uname -s)
-if [[ "${OS_FLAVOR}" == "Darwin" ]]; then
-  declare -p | grep 'ATLAS\|AZURE\|DEMO|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
-else
-  ( set -o posix ; set ) | grep 'ATLAS\|AZURE\|DEMO\|SPIN_DEMO' > ${SPIN_DEMO_LOG}.env
-fi
+cat << END_VARS > ${SPIN_DEMO_LOG}.env
+AEM_VM_IP="${AEM_VM_IP}"
+DEMO_NAME="${DEMO_NAME}"
+ATLAS_CREDS="${ATLAS_CREDS}"
+ATLAS_URL="${ATLAS_URL}"
+ATLAS_GROUP_ID="${ATLAS_GROUP_ID}"
+ATLAS_CLUSTER_NAME="${ATLAS_CLUSTER_NAME}"
+END_VARS
+
 
 az resource list --output table \
 --tag "${DEMO_NAME_TAG}" > ${SPIN_DEMO_LOG}

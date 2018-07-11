@@ -4,11 +4,13 @@ set -x
 
 
 # load env vars from spin-up
-SPIN_UP_LOG="./aem-on-azure-and-atlas.spin-up.log"
-eval $(grep '^ATLAS\|^AZURE\|^DEMO' ${SPIN_UP_LOG})
-# Fetch id's of any Azure resource
+source ./aem-on-azure-and-atlas.spin-up.log.env
 
-declare -p | grep '^ATLAS\|^AZURE\|^DEMO|^SPIN_DEMO'
+echo "DEMO_NAME=${DEMO_NAME}"
+echo "ATLAS_CREDS=${ATLAS_CREDS}"
+echo "ATLAS_URL=${ATLAS_URL}"
+echo "ATLAS_GROUP_ID=${ATLAS_GROUP_ID}"
+echo "ATLAS_CLUSTER_NAME=${ATLAS_CLUSTER_NAME}"
 
 # All Azure resource are associated with a single group.
 # Deleting the group will delete everything.
@@ -25,4 +27,5 @@ jq '.status')
 
 echo "Atlas delete cluster HTTP Status: ${HTTP_STATUS}"
 echo "Atlas delete cluster response: ${ATLAS_DELETE_CLUSTER_RSP}"
+echo "202 = Accepted"
 
